@@ -35,23 +35,19 @@ jobs:
 
       - name: Create Terraform Backend Resources
         run: |
-          # Create resource group for Terraform state
-          az group create --name rg-lbg-demo-dev --location canadacentral --tags "purpose=terraform-state" || echo "Resource group exists"
+          az group create --name rg-lbg-demo-dev --location southcentralus --tags "purpose=terraform-state" || echo "Resource group exists"
           
-          # Use GitHub run ID for uniqueness (guaranteed unique per run)
           STORAGE_NAME="tf${GITHUB_RUN_ID}"
           echo "Using storage account: $STORAGE_NAME"
           
-          # Create storage account
           az storage account create \
             --resource-group rg-lbg-demo-dev \
             --name $STORAGE_NAME \
             --sku Standard_LRS \
             --encryption-services blob \
-            --location canadacentral \
+            --location southcentralus \
             --tags "purpose=terraform-state"
           
-          # Create container
           az storage container create \
             --name tfstate \
             --account-name $STORAGE_NAME \
@@ -63,19 +59,15 @@ jobs:
       - name: Get Supported AKS Version
         id: get_aks_version
         run: |
-          # Login to Azure first
           az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
           
-          # Get supported versions
-          echo "=== Supported AKS Versions in Canada Central ==="
-          az aks get-versions --location canadacentral --output table
+          echo "=== Supported AKS Versions in South Central US ==="
+          az aks get-versions --location southcentralus --output table
           
-          # Get the latest supported version
-          LATEST_VERSION=$(az aks get-versions --location canadacentral --query "orchestrators[?isDefault==\`true\`].orchestratorVersion" -o tsv)
+          LATEST_VERSION=$(az aks get-versions --location southcentralus --query "orchestrators[?isDefault==\`true\`].orchestratorVersion" -o tsv)
           
           if [ -z "$LATEST_VERSION" ]; then
-            # Fallback to a known supported version for Canada Central
-            LATEST_VERSION="1.33.3"
+            LATEST_VERSION="1.27.9"
           fi
           
           echo "Selected AKS version: $LATEST_VERSION"
@@ -99,19 +91,14 @@ jobs:
         run: |
           cd infrastructure
           
-          # Import Resource Group
           terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon || echo "Resource group may already be imported"
           
-          # Import ACR
           terraform import module.acr.azurerm_container_registry.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.ContainerRegistry/registries/acrhackathon20251104101910 || echo "ACR may already be imported"
           
-          # Import Virtual Network
           terraform import module.network.azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.Network/virtualNetworks/vnet-dev-lbg-app || echo "VNet may already be imported"
           
-          # Import Subnet
           terraform import module.network.azurerm_subnet.aks /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.Network/virtualNetworks/vnet-dev-lbg-app/subnets/aks-subnet || echo "Subnet may already be imported"
           
-          # Import Public IP
           terraform import azurerm_public_ip.pip /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.Network/publicIPAddresses/pip-lb-dev-lbg-app || echo "Public IP may already be imported"
           
           echo "All existing resources import attempted"
@@ -142,15 +129,15 @@ jobs:
           terraform plan \
             -var="environment=dev" \
             -var="resource_group_name=rg-saturday-hackathon" \
-            -var="location=canadacentral" \
+            -var="location=southcentralus" \
             -var="acr_name=acrhackathon20251104101910" \
             -var="aks_cluster_name=aks-saturday-hackathon" \
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="vm_size=Standard_B2ms" \
-            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
+            -var="vm_size=Standard_B2s" \
+            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.27.9' }}" \
             -var="min_count=1" \
-            -var="max_count=2" \
+            -var="max_count=1" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -205,7 +192,6 @@ jobs:
         run: |
           cd ${{ matrix.service }}
           
-          # Build the image
           docker build \
             --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }} \
             --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest \
@@ -214,7 +200,6 @@ jobs:
             --build-arg VERSION=1.0.0 \
             .
           
-          # Push the image
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
           
@@ -312,17 +297,13 @@ jobs:
 
       - name: Handle existing namespace
         run: |
-          # Check if namespace exists
           if kubectl get namespace lbg-ns >/dev/null 2>&1; then
             echo "Namespace lbg-ns already exists"
-            
-            # Check if there's a Helm release in this namespace
             if helm list -n lbg-ns -q | grep -q "lbg-app"; then
               echo "Helm release 'lbg-app' exists, will perform upgrade"
             else
               echo "No Helm release found. Deleting namespace for clean installation..."
               kubectl delete namespace lbg-ns
-              echo "Waiting for namespace to be deleted..."
               if kubectl wait --for=delete namespace/lbg-ns --timeout=120s 2>/dev/null; then
                 echo "Namespace deleted successfully"
               else
@@ -336,10 +317,7 @@ jobs:
 
       - name: Create ACR pull secret
         run: |
-          # Ensure namespace exists
           kubectl create namespace lbg-ns --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Create or update ACR secret
           kubectl create secret docker-registry acr-secret \
             --namespace lbg-ns \
             --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
@@ -350,16 +328,12 @@ jobs:
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
-          
-          # Template test first
           helm template lbg-app . \
             --namespace lbg-ns \
             -f values-dev.yml \
             --set patientService.tag=${{ github.sha }} \
             --set appointmentService.tag=${{ github.sha }} \
             --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
-          
-          # Install/Upgrade the release
           helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --wait \
@@ -397,31 +371,16 @@ jobs:
           echo "   Patient Service:    http://lbg-app.dev.local/patients"
           echo "   Appointment Service: http://lbg-app.dev.local/appointments" 
           echo "   Health Check:       http://lbg-app.dev.local/health"
-          echo ""
-          echo "?? Quick test command:"
-          echo "   echo '$EXTERNAL_IP lbg-app.dev.local' | sudo tee -a /etc/hosts"
 
       - name: Run comprehensive health checks
         run: |
           echo "=== Running Health Checks ==="
-          
-          # Wait for pods to be ready
-          echo "Waiting for pods to be ready..."
           kubectl wait --for=condition=ready pod -l app=patient-service -n lbg-ns --timeout=300s
           kubectl wait --for=condition=ready pod -l app=appointment-service -n lbg-ns --timeout=300s
-          
-          # Test internal health endpoints
-          echo "Testing internal service health..."
           kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://localhost:3000/health && echo "? Patient service internal health: OK" || echo "? Patient service internal health: FAILED"
           kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://localhost:3001/health && echo "? Appointment service internal health: OK" || echo "? Appointment service internal health: FAILED"
-          
-          # Test service-to-service communication
-          echo "Testing service communication..."
           kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://appointment-service:3001/health && echo "? Patient -> Appointment communication: OK" || echo "? Patient -> Appointment communication: FAILED"
           kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://patient-service:3000/health && echo "? Appointment -> Patient communication: OK" || echo "? Appointment -> Patient communication: FAILED"
-          
-          # Test through ingress (if available)
-          echo "Testing through ingress..."
           EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           if [ -n "$EXTERNAL_IP" ]; then
             curl -s -f http://$EXTERNAL_IP/health && echo "? Ingress health check: OK" || echo "? Ingress health check: FAILED"
