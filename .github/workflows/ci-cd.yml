@@ -64,7 +64,7 @@ jobs:
         id: get_aks_version
         run: |
           # Use default version since we're creating new AKS cluster
-          CURRENT_VERSION="1.26.0"
+          CURRENT_VERSION="1.33.3"
           echo "Current AKS version: $CURRENT_VERSION"
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
