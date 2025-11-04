@@ -35,38 +35,51 @@ jobs:
 
       - name: Create Terraform Backend Resources
         run: |
-          # Create resource group for Terraform state if it doesn't exist
-          az group create --name rg-lbg-demo-dev --location canadacentral --tags "purpose=terraform-state"
+          # Create resource group for Terraform state
+          az group create --name rg-lbg-demo-dev --location canadacentral --tags "purpose=terraform-state" || echo "Resource group exists"
           
-          # Generate unique storage account name
-          UNIQUE_SUFFIX=$(date +%s | tail -c 5)
-          STORAGE_ACCOUNT_NAME="tfstate${UNIQUE_SUFFIX}"
-          echo "STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME" >> $GITHUB_ENV
+          # Use GitHub run ID for uniqueness (guaranteed unique per run)
+          STORAGE_NAME="tf${GITHUB_RUN_ID}"
+          echo "Using storage account: $STORAGE_NAME"
           
           # Create storage account
           az storage account create \
             --resource-group rg-lbg-demo-dev \
-            --name $STORAGE_ACCOUNT_NAME \
+            --name $STORAGE_NAME \
             --sku Standard_LRS \
             --encryption-services blob \
             --location canadacentral \
             --tags "purpose=terraform-state"
           
-          # Create container for Terraform state
+          # Create container
           az storage container create \
             --name tfstate \
-            --account-name $STORAGE_ACCOUNT_NAME \
+            --account-name $STORAGE_NAME \
             --auth-mode login
           
-          echo "Terraform backend storage account created: $STORAGE_ACCOUNT_NAME"
+          echo "STORAGE_ACCOUNT_NAME=$STORAGE_NAME" >> $GITHUB_ENV
+          echo "Created storage account: $STORAGE_NAME"
 
-      - name: Get Current AKS Version
+      - name: Get Supported AKS Version
         id: get_aks_version
         run: |
-          # Use default version since we're creating new AKS cluster
-          CURRENT_VERSION="1.33.3"
-          echo "Current AKS version: $CURRENT_VERSION"
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          # Login to Azure first
+          az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+          
+          # Get supported versions
+          echo "=== Supported AKS Versions in Canada Central ==="
+          az aks get-versions --location canadacentral --output table
+          
+          # Get the latest supported version
+          LATEST_VERSION=$(az aks get-versions --location canadacentral --query "orchestrators[?isDefault==\`true\`].orchestratorVersion" -o tsv)
+          
+          if [ -z "$LATEST_VERSION" ]; then
+            # Fallback to a known supported version for Canada Central
+            LATEST_VERSION="1.27.9"
+          fi
+          
+          echo "Selected AKS version: $LATEST_VERSION"
+          echo "current_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
 
       - name: Terraform Init
         run: |
@@ -76,6 +89,26 @@ jobs:
             -backend-config="storage_account_name=$STORAGE_ACCOUNT_NAME" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=terraform.tfstate"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Import Existing ACR
+        run: |
+          cd infrastructure
+          terraform import module.acr.azurerm_container_registry.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.ContainerRegistry/registries/acrhackathon20251104101910 || echo "ACR may already be imported or import not needed"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Import Existing Resource Group
+        run: |
+          cd infrastructure
+          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon || echo "Resource group may already be imported"
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -97,17 +130,6 @@ jobs:
           cd infrastructure
           terraform fmt -recursive
 
-      - name: Import Existing Resource Group
-        run: |
-          cd infrastructure
-          # Import the existing resource group to avoid creation conflicts
-          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon || echo "Resource group may already be imported or doesn't exist"
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
       - name: Terraform Plan
         run: |
           cd infrastructure
@@ -120,7 +142,7 @@ jobs:
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
             -var="vm_size=Standard_B2s" \
-            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.26.0' }}" \
+            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.27.9' }}" \
             -var="min_count=1" \
             -var="max_count=3" \
             -out=tfplan
@@ -261,7 +283,6 @@ jobs:
           kubectl config current-context
           kubectl get nodes
 
-      # NEW STEP: Install Nginx Ingress Controller for Browser Access
       - name: Install Nginx Ingress Controller
         run: |
           helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
@@ -354,7 +375,6 @@ jobs:
           echo ""
           kubectl get pvc -n lbg-ns 2>/dev/null || echo "No PVCs found"
 
-      # NEW STEP: Get Browser Access Information
       - name: Get Browser Access URLs
         run: |
           EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
