@@ -147,10 +147,10 @@ jobs:
             -var="aks_cluster_name=aks-saturday-hackathon" \
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="vm_size=Standard_B1s" \
+            -var="vm_size=Standard_B2ms" \
             -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
             -var="min_count=1" \
-            -var="max_count=3" \
+            -var="max_count=2" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
