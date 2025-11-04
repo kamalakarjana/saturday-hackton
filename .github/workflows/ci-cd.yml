@@ -67,7 +67,7 @@ jobs:
           LATEST_VERSION=$(az aks get-versions --location southcentralus --query "orchestrators[?isDefault==\`true\`].orchestratorVersion" -o tsv)
           
           if [ -z "$LATEST_VERSION" ]; then
-            LATEST_VERSION="1.27.9"
+            LATEST_VERSION="1.33.3"
           fi
           
           echo "Selected AKS version: $LATEST_VERSION"
@@ -135,7 +135,7 @@ jobs:
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
             -var="vm_size=Standard_B2s" \
-            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.27.9' }}" \
+            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
             -var="min_count=1" \
             -var="max_count=1" \
             -out=tfplan
