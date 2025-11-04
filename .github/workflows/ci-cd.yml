@@ -75,7 +75,7 @@ jobs:
           
           if [ -z "$LATEST_VERSION" ]; then
             # Fallback to a known supported version for Canada Central
-            LATEST_VERSION="1.27.9"
+            LATEST_VERSION="1.33.3"
           fi
           
           echo "Selected AKS version: $LATEST_VERSION"
