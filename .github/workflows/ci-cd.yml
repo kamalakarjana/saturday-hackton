@@ -33,6 +33,33 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Create Terraform Backend Resources
+        run: |
+          # Create resource group for Terraform state if it doesn't exist
+          az group create --name rg-lbg-demo-dev --location canadacentral --tags "purpose=terraform-state"
+          
+          # Generate unique storage account name
+          UNIQUE_SUFFIX=$(date +%s | tail -c 5)
+          STORAGE_ACCOUNT_NAME="tfstate${UNIQUE_SUFFIX}"
+          echo "STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME" >> $GITHUB_ENV
+          
+          # Create storage account
+          az storage account create \
+            --resource-group rg-lbg-demo-dev \
+            --name $STORAGE_ACCOUNT_NAME \
+            --sku Standard_LRS \
+            --encryption-services blob \
+            --location canadacentral \
+            --tags "purpose=terraform-state"
+          
+          # Create container for Terraform state
+          az storage container create \
+            --name tfstate \
+            --account-name $STORAGE_ACCOUNT_NAME \
+            --auth-mode login
+          
+          echo "Terraform backend storage account created: $STORAGE_ACCOUNT_NAME"
+
       - name: Get Current AKS Version
         id: get_aks_version
         run: |
@@ -45,8 +72,8 @@ jobs:
         run: |
           cd infrastructure
           terraform init \
-            -backend-config="resource_group_name=lbg-aks-cluster-dev" \
-            -backend-config="storage_account_name=${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="resource_group_name=rg-lbg-demo-dev" \
+            -backend-config="storage_account_name=$STORAGE_ACCOUNT_NAME" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=terraform.tfstate"
         env:
@@ -70,12 +97,23 @@ jobs:
           cd infrastructure
           terraform fmt -recursive
 
+      - name: Import Existing Resource Group
+        run: |
+          cd infrastructure
+          # Import the existing resource group to avoid creation conflicts
+          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon || echo "Resource group may already be imported or doesn't exist"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
       - name: Terraform Plan
         run: |
           cd infrastructure
           terraform plan \
             -var="environment=dev" \
-            -var="resource_group_name=lbg-aks-cluster-dev" \
+            -var="resource_group_name=rg-saturday-hackathon" \
             -var="location=canadacentral" \
             -var="acr_name=acrhackathon20251104101910" \
             -var="aks_cluster_name=aks-saturday-hackathon" \
@@ -214,7 +252,7 @@ jobs:
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
-            --resource-group lbg-aks-cluster-dev \
+            --resource-group rg-saturday-hackathon \
             --name aks-saturday-hackathon \
             --overwrite-existing
 
