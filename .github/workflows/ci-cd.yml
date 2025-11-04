@@ -45,7 +45,7 @@ jobs:
         run: |
           cd infrastructure
           terraform init \
-            -backend-config="resource_group_name=rg-saturday-hackathon" \
+            -backend-config="resource_group_name=lbg-aks-cluster-dev" \
             -backend-config="storage_account_name=${{ secrets.STORAGE_ACCOUNT_NAME }}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=terraform.tfstate"
@@ -75,7 +75,7 @@ jobs:
           cd infrastructure
           terraform plan \
             -var="environment=dev" \
-            -var="resource_group_name=rg-saturday-hackathon" \
+            -var="resource_group_name=lbg-aks-cluster-dev" \
             -var="location=canadacentral" \
             -var="acr_name=acrhackathon20251104101910" \
             -var="aks_cluster_name=aks-saturday-hackathon" \
@@ -214,7 +214,7 @@ jobs:
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
-            --resource-group rg-saturday-hackathon \
+            --resource-group lbg-aks-cluster-dev \
             --name aks-saturday-hackathon \
             --overwrite-existing
 
