@@ -134,7 +134,7 @@ jobs:
             -var="aks_cluster_name=aks-saturday-hackathon" \
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="vm_size=Standard_B2s" \
+            -var="vm_size=Standard_D2s_v3" \
             -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
             -var="min_count=1" \
             -var="max_count=1" \
