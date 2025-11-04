@@ -36,7 +36,8 @@ jobs:
       - name: Get Current AKS Version
         id: get_aks_version
         run: |
-          CURRENT_VERSION=$(az aks show --name lbg-aks-cluster-dev --resource-group rg-lbg-demo-dev --query kubernetesVersion -o tsv)
+          # Use default version since we're creating new AKS cluster
+          CURRENT_VERSION="1.26.0"
           echo "Current AKS version: $CURRENT_VERSION"
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
@@ -44,10 +45,10 @@ jobs:
         run: |
           cd infrastructure
           terraform init \
-            -backend-config="resource_group_name=rg-lbg-demo-dev" \
-            -backend-config="storage_account_name=tfstatestorageacc0212" \
-            -backend-config="container_name=lbg-02-12-1994" \
-            -backend-config="key=terraform.lbg-02-12-1994"
+            -backend-config="resource_group_name=rg-saturday-hackathon" \
+            -backend-config="storage_account_name=${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=terraform.tfstate"
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -74,16 +75,16 @@ jobs:
           cd infrastructure
           terraform plan \
             -var="environment=dev" \
-            -var="resource_group_name=rg-lbg-demo-dev" \
-            -var="location=Central US" \
-            -var="acr_name=acrlbgdemodev" \
-            -var="aks_cluster_name=lbg-aks-cluster" \
+            -var="resource_group_name=rg-saturday-hackathon" \
+            -var="location=canadacentral" \
+            -var="acr_name=acrhackathon20251104101910" \
+            -var="aks_cluster_name=aks-saturday-hackathon" \
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="vm_size=Standard_D2s_v3" \
-            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
+            -var="vm_size=Standard_B2s" \
+            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.26.0' }}" \
             -var="min_count=1" \
-            -var="max_count=5" \
+            -var="max_count=3" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -132,7 +133,7 @@ jobs:
             -u ${{ secrets.AZURE_CLIENT_ID }} \
             -p ${{ secrets.AZURE_CLIENT_SECRET }} \
             --tenant ${{ secrets.AZURE_TENANT_ID }}
-          az acr login --name acrlbgdemodev
+          az acr login --name acrhackathon20251104101910
 
       - name: Build and Push Docker image for ${{ matrix.service }}
         run: |
@@ -213,8 +214,8 @@ jobs:
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
-            --resource-group rg-lbg-demo-dev \
-            --name lbg-aks-cluster-dev \
+            --resource-group rg-saturday-hackathon \
+            --name aks-saturday-hackathon \
             --overwrite-existing
 
       - name: Setup Kubernetes context
@@ -277,8 +278,8 @@ jobs:
           kubectl create secret docker-registry acr-secret \
             --namespace lbg-ns \
             --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
-            --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
-            --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy to AKS using Helm
@@ -319,21 +320,21 @@ jobs:
       - name: Get Browser Access URLs
         run: |
           EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "🎉 DEPLOYMENT SUCCESSFUL!"
+          echo "?? DEPLOYMENT SUCCESSFUL!"
           echo ""
-          echo "📱 BROWSER ACCESS INFORMATION:"
+          echo "?? BROWSER ACCESS INFORMATION:"
           echo "================================"
           echo "External IP: $EXTERNAL_IP"
           echo ""
-          echo "📍 Add this to your /etc/hosts file:"
+          echo "?? Add this to your /etc/hosts file:"
           echo "$EXTERNAL_IP lbg-app.dev.local"
           echo ""
-          echo "🌐 Access your services in browser:"
+          echo "?? Access your services in browser:"
           echo "   Patient Service:    http://lbg-app.dev.local/patients"
           echo "   Appointment Service: http://lbg-app.dev.local/appointments" 
           echo "   Health Check:       http://lbg-app.dev.local/health"
           echo ""
-          echo "💡 Quick test command:"
+          echo "?? Quick test command:"
           echo "   echo '$EXTERNAL_IP lbg-app.dev.local' | sudo tee -a /etc/hosts"
 
       - name: Run comprehensive health checks
@@ -347,19 +348,19 @@ jobs:
           
           # Test internal health endpoints
           echo "Testing internal service health..."
-          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://localhost:3000/health && echo "✅ Patient service internal health: OK" || echo "❌ Patient service internal health: FAILED"
-          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://localhost:3001/health && echo "✅ Appointment service internal health: OK" || echo "❌ Appointment service internal health: FAILED"
+          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://localhost:3000/health && echo "? Patient service internal health: OK" || echo "? Patient service internal health: FAILED"
+          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://localhost:3001/health && echo "? Appointment service internal health: OK" || echo "? Appointment service internal health: FAILED"
           
           # Test service-to-service communication
           echo "Testing service communication..."
-          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://appointment-service:3001/health && echo "✅ Patient -> Appointment communication: OK" || echo "❌ Patient -> Appointment communication: FAILED"
-          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://patient-service:3000/health && echo "✅ Appointment -> Patient communication: OK" || echo "❌ Appointment -> Patient communication: FAILED"
+          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://appointment-service:3001/health && echo "? Patient -> Appointment communication: OK" || echo "? Patient -> Appointment communication: FAILED"
+          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://patient-service:3000/health && echo "? Appointment -> Patient communication: OK" || echo "? Appointment -> Patient communication: FAILED"
           
           # Test through ingress (if available)
           echo "Testing through ingress..."
           EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           if [ -n "$EXTERNAL_IP" ]; then
-            curl -s -f http://$EXTERNAL_IP/health && echo "✅ Ingress health check: OK" || echo "❌ Ingress health check: FAILED"
+            curl -s -f http://$EXTERNAL_IP/health && echo "? Ingress health check: OK" || echo "? Ingress health check: FAILED"
           fi
 
   cleanup:
