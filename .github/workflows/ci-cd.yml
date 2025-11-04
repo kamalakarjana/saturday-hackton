@@ -95,20 +95,23 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Import Existing ACR
+      - name: Import Existing Resources
         run: |
           cd infrastructure
-          terraform import module.acr.azurerm_container_registry.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.ContainerRegistry/registries/acrhackathon20251104101910 || echo "ACR may already be imported or import not needed"
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Import Existing Resource Group
-        run: |
-          cd infrastructure
+          
+          # Import Resource Group
           terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon || echo "Resource group may already be imported"
+          
+          # Import ACR
+          terraform import module.acr.azurerm_container_registry.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.ContainerRegistry/registries/acrhackathon20251104101910 || echo "ACR may already be imported"
+          
+          # Import Virtual Network
+          terraform import module.network.azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.Network/virtualNetworks/vnet-dev-lbg-app || echo "VNet may already be imported"
+          
+          # Import Public IP
+          terraform import azurerm_public_ip.pip /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-saturday-hackathon/providers/Microsoft.Network/publicIPAddresses/pip-lb-dev-lbg-app || echo "Public IP may already be imported"
+          
+          echo "All existing resources import attempted"
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
