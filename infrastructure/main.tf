@@ -2,7 +2,7 @@ terraform {
   required_version = ">= 1.0"
   backend "azurerm" {
     resource_group_name  = "rg-lbg-demo-dev"
-    storage_account_name = "tfstatestorageacc0212"
+    storage_account_name = "tfstate4777"
     container_name       = "lbg-02-12-1994"
     key                  = "terraform.lbg-02-12-1994"
   }
